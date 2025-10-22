@@ -760,13 +760,13 @@ fig <- plot_ly() %>%
   legend = list(
     orientation = "h",        # 水平排列
     x = 0.5,                  # 居中
-    y = 1.02,                  # 调整图例高度
+    y = 1.03,                  # 调整图例高度
     xanchor = "center",
     yanchor = "bottom",
     bgcolor = "rgba(255,255,255,0.9)",
     bordercolor = "rgba(0,0,0,0.1)",
     borderwidth = 1,
-    font = list(size = 12, family = "Microsoft YaHei")
+    font = list(size = 10, family = "Microsoft YaHei")
   ),
   plot_bgcolor = "#fafafa",
   paper_bgcolor = "#ffffff",
@@ -839,13 +839,15 @@ hv_points <- hv_data %>%
 # Step 6: 绘图优化版（避免滑条与图例重叠）
 #----------------------------------------
 p <- plot_ly() %>%
-  # 灰色区间（5%-95%）
+  #-------------------------------------------------------
+  # 5%-95% 灰色区间 / Gray band for 5%-95%
+  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~p95,
     type = "scatter", mode = "lines",
     line = list(color = "lightgray"),
-    name = "95分位", showlegend = FALSE
+    name = "95分位"
   ) %>%
   add_trace(
     data = hv_cone_static,
@@ -853,14 +855,17 @@ p <- plot_ly() %>%
     type = "scatter", mode = "lines",
     fill = "tonexty", fillcolor = "rgba(211,211,211,0.3)",
     line = list(color = "lightgray"),
-    name = "5-95分位区间", showlegend = TRUE
+    name = "5%-95% 区间"
   ) %>%
-  # 蓝色区间（25%-75%）
+  #-------------------------------------------------------
+  # 25%-75% 蓝色区间 / Blue band for 25%-75%
+  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~p75,
     type = "scatter", mode = "lines",
-    line = list(color = "skyblue"), name = "75分位", showlegend = FALSE
+    line = list(color = "skyblue"),
+    name = "75分位"
   ) %>%
   add_trace(
     data = hv_cone_static,
@@ -868,16 +873,18 @@ p <- plot_ly() %>%
     type = "scatter", mode = "lines",
     fill = "tonexty", fillcolor = "rgba(135,206,235,0.4)",
     line = list(color = "skyblue"),
-    name = "25-75分位区间", showlegend = TRUE
+    name = "25%-75% 区间"
   ) %>%
-  # 中位数线
+  #-------------------------------------------------------
+  # 中位数线 / Median line
+  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~median,
     type = "scatter", mode = "lines+markers",
-    line = list(color = "steelblue", width = 3),
-    marker = list(size = 5, color = "steelblue"),
-    name = "中位数"
+    line = list(color = "#0055AA", width = 3),
+    marker = list(size = 6, color = "#0055AA"),
+    name = "中位数 (Median)"
   ) %>%
   # 红点动画
   add_trace(
@@ -916,7 +923,7 @@ p <- plot_ly() %>%
       orientation = "h",
       x = 0.5,
       xanchor = "center",
-      y = -0.3   # ✅ 图例往下挪，防止重叠滑条
+      y = 1.03   # ✅ 图例往下挪，防止重叠滑条
     ),
     plot_bgcolor = "#fafafa",
     paper_bgcolor = "#ffffff",

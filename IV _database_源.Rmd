@@ -1,0 +1,548 @@
+---
+title: "IV_database"
+output: html_document
+date: "2025-09-10"
+---
+```{r}
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+```
+
+```{r}
+#输入认购（call）or 认沽（put）
+type <- "put"
+
+#输入create（创建新数据库） or add（添加新数据）
+mod <- "add" 
+```
+
+```{r}
+# 封装一个读取和清洗函数
+clean <- function(df) {
+ 
+  # 把第二行第1列的数据放到第一行第1列
+  df[1, 1] <- df[2, 1]
+  # 删除第二行
+  df <- df[-2, ]
+  
+  # 第一行设为列名
+  colnames(df) <- as.character(unlist(df[1, ]))
+  df <- df[-1, ]
+  
+  # 日期列转换（Excel 数值 → Date）
+  df[[1]] <- as.Date(as.numeric(df[[1]]), origin = "1899-12-30")
+  
+   # 除第一列外的所有列都转换为 numeric
+  if(ncol(df) > 1) {
+    df[,-1] <- lapply(df[,-1], function(x) suppressWarnings(as.numeric(x)))
+  }
+  
+  # 返回结果
+  return(df)
+}
+```
+
+*导入 or 创建数据库*
+```{r}
+if (mod == "create") {
+  
+  result_list_latest <- list()
+  
+} else if (mod == "add" && type == "call") {
+  
+  load("call_data.RData")
+
+} else if (mod == "add" && type == "put") {
+  
+  load("put_data.RData")
+  
+}
+
+```
+
+
+*读取数据信息*
+```{r}
+# 在文件开头定义配置，方便修改
+file_path <- "中证1000认沽update.xlsx"
+
+# 一次性读取所有数据
+close_price <- suppressMessages(read_excel(file_path, sheet = "收盘价", col_names = FALSE, skip = 2))
+exercise_price <- suppressMessages(read_excel(file_path, sheet = "行权价格", col_names = FALSE, skip = 2))
+target_close_price <- suppressMessages(read_excel(file_path, sheet = "标的收盘价", col_names = FALSE, skip = 2))
+expire_date <- suppressMessages(read_excel(file_path, sheet = "到期日", col_names = FALSE, skip = 2))
+volume <- suppressMessages(read_excel(file_path, sheet = "成交量", col_names = FALSE, skip = 2))
+rf <- suppressMessages(read_excel(file_path, sheet = "无风险利率", col_names = FALSE, skip = 4))
+
+ID <- data.frame(ID = t(close_price[1, -1]), stringsAsFactors = FALSE)
+
+colnames(rf) <- c("时间", "无风险利率")
+rf[,-1] <- lapply(rf[,-1], as.numeric)
+
+close_price      <- clean(close_price)
+exercise_price   <- clean(exercise_price)
+target_close_price <- clean(target_close_price)
+expire_date      <- clean(expire_date)
+volume           <- clean(volume)
+
+expire_date[-1] <- lapply(expire_date[-1], function(col) {
+  as.Date(as.numeric(col), origin = "1899-12-30")
+})
+
+```
+
+
+*检查收盘价、行权价格、标的收盘价、到期日和成交量的日期是否一致*
+*检查期权数量是否正确*
+```{r}
+if(!all(nrow(volume) == nrow(close_price), 
+        nrow(volume) == nrow(target_close_price),
+        nrow(volume) == nrow(expire_date),
+        nrow(volume) == nrow(exercise_price))) {
+  stop("所有数据的行数必须相同")
+}
+
+if(!all(ncol(volume)-1 == nrow(ID))) {  #第一列是时间
+  stop("所有数据的ID必须相同")
+}
+
+```
+
+
+```{r}
+#先将expire_date写入ID，然后对close_price, volume进行操作。如果在expire_date之后还有数据，就将其设置为0
+# 获取所有ID名称
+ids <- as.character(ID[[1]])
+
+# 为ID数据框添加到期日列和执行价格列
+ID$Expire_Date <- as.Date(NA) # 创建到期日空列
+ID$Exercise_Price <- NA_real_  # 创建执行价格空列，数值类型
+
+# 合并填充到期日和执行价格
+for(i in 1:length(ids)) {
+  id <- ids[i]
+  
+  # 填充到期日
+  if(id %in% colnames(expire_date)) {
+    # 获取该ID的到期日（排除NA值）
+    expiry <- na.omit(expire_date[[id]])
+    if(length(expiry) > 0) {
+      ID$Expire_Date[i] <- expiry[1] # 取第一个非NA值
+    }
+  }
+  
+  # 填充执行价格
+  if(id %in% colnames(exercise_price)) {
+    # 获取该ID的执行价格（排除NA值）
+    exercise_price_vals <- na.omit(exercise_price[[id]])
+    if(length(exercise_price_vals) > 0) {
+      ID$Exercise_Price[i] <- exercise_price_vals[1] # 取第一个非NA值
+    }
+  }
+}
+
+
+# 对close_price和volume进行操作：到期日之后的数据设为0
+for(id in ids) {
+  if(id %in% colnames(close_price) && id %in% colnames(volume)) {
+    # 获取该ID的到期日
+    expiry_date <- ID$Expire_Date[ID[[1]] == id]
+    
+    if(!is.na(expiry_date)) {
+      # 找到到期日之后的日期索引
+      expire_after_indices <- which(close_price$时间 > expiry_date)
+      
+      # 将这些索引对应的值设为0
+      if(length(expire_after_indices) > 0) {
+        close_price[expire_after_indices, id] <- 0
+        volume[expire_after_indices, id] <- 0
+      }
+    }
+  }
+}
+
+```
+
+
+*按时间序列 合并每个ID当日的收盘价、成交量和标的收盘价*
+*把ID提取的到期日和收盘价合并*
+```{r}
+# 创建结果列表
+result_list <- list()
+
+# 遍历每个日期
+for(i in 2:nrow(volume)) {  ## 排除最后一天（也就是今天）的数据
+  # 获取当前日期
+  current_date <- volume$时间[i]
+  
+  # 提取该日期的所有ID和对应的数据
+  volume_values <- as.numeric(volume[i, -1]) # 排除第一列(日期)
+  close_price_values <- as.numeric(close_price[i, -1]) # 排除第一列(日期)
+  target_close_price_values <- as.numeric(target_close_price[i, -1]) # 排除第一列(日期)
+  
+  # 获取每个ID的到期日和行权价格（直接从ID数据框中提取）
+  expire_date_values <- ID$Expire_Date[match(ids, ID[[1]])]
+  exercise_price_values <- ID$Exercise_Price[match(ids, ID[[1]])]
+  
+  # 创建数据框
+  date_data <- data.frame(
+    ID = ids,
+    Volume = volume_values,
+    Close_Price = close_price_values,
+    Target_Close_Price = target_close_price_values,
+    Expire_Date = expire_date_values,
+    Exercise_Price = exercise_price_values,
+    stringsAsFactors = FALSE
+  )
+  
+  # 过滤掉成交量和收盘价都为0或者NA的记录
+  date_data <- subset(
+  date_data,
+  !( (is.na(Volume) | Volume == 0) & (is.na(Close_Price) | Close_Price == 0) )  #### 需不需要过滤掉到期日的数据
+)
+
+  
+  # 如果有有效数据，添加到结果列表
+  if(nrow(date_data) > 0 && !all(is.na(date_data[, -1]))) {
+    result_list[[as.character(current_date)]] <- date_data
+  }
+}
+
+# 检查结果
+cat("处理完成，有效日期数量:", length(result_list), "\n")
+```
+
+
+*添加无风险利率rf，使其与日期匹配*
+```{r}
+# 确保rf数据框的日期列是正确的格式
+rf$时间 <- as.Date(rf$时间, format="%Y/%m/%d")
+
+
+# 为result_list中的每个日期数据框添加rf值
+for(date_str in names(result_list)) {
+  # 将字符串日期转换为Date对象
+  current_date <- as.Date(date_str)
+  
+  # 在rf数据框中查找对应日期的rf值
+  rf_row <- rf[rf$时间 == current_date, ]
+  
+  if(nrow(rf_row) > 0) {
+    rf_value <- as.numeric(rf_row[1, 2])
+    
+    # 为当前日期的所有数据添加相同的rf值
+    result_list[[date_str]]$rf <- rf_value
+  } else {
+    # 如果找不到对应的rf值，使用NA
+    warning(paste("在rf数据框中找不到日期:", current_date))
+    result_list[[date_str]]$rf <- NA
+  }
+}
+
+# 检查是否有日期缺少rf值
+missing_rf_dates <- sapply(result_list, function(x) all(is.na(x$rf)))
+if(any(missing_rf_dates)) {
+  cat("以下日期缺少rf值:", toString(names(result_list)[missing_rf_dates]), "\n")
+} else {
+  cat("所有日期都成功添加了rf值\n")
+}
+```
+
+
+*level 排序 实值期权\虚值期权*
+```{r}
+#在所有行权价大于平值期权的行权价的里面最小的那个设为1，第二小的设为2……，所有行权价小于平值期权的行权价的最大的那个设为-1，第二大的设为-2……允许并列
+
+# 为每个日期的数据框添加 'level' 列
+for(date_str in names(result_list)) {
+  date_data <- result_list[[date_str]]
+  
+  # 计算行权价格与标的收盘价的差值
+  date_data <- date_data %>%
+    mutate(diff = abs(Target_Close_Price - Exercise_Price))
+  
+  # 找到与标的收盘价最接近的期权，标记为平值期权 (level = 0)
+  min_diff_idx <- which.min(date_data$diff)
+  date_data$level <- 0  # 默认值为0
+  
+  # 获取平值期权的行权价
+  at_the_money_strike <- date_data$Exercise_Price[min_diff_idx]
+  
+  # 分离出大于平值期权的期权和小于平值期权的期权
+  greater_than_atm <- date_data %>%
+    filter(Exercise_Price > at_the_money_strike)
+  less_than_atm <- date_data %>%
+    filter(Exercise_Price < at_the_money_strike)
+  
+  # 保留平值期权
+  at_the_money <- date_data %>%
+    filter(Exercise_Price == at_the_money_strike)
+  
+  # 对大于平值期权的期权按行权价升序排序，并编号（并列）
+  greater_than_atm <- greater_than_atm %>%
+    arrange(Exercise_Price) %>%
+    mutate(level = dense_rank(Exercise_Price))  # 使用dense_rank处理并列
+
+  # 对小于平值期权的期权按行权价降序排序，并编号（并列）
+  less_than_atm <- less_than_atm %>%
+    arrange(desc(Exercise_Price)) %>%
+    mutate(level = -dense_rank(desc(Exercise_Price)))  # 使用dense_rank处理并列并反向编号
+
+  # 合并大于平值期权、小于平值期权以及平值期权
+  date_data <- bind_rows(greater_than_atm, less_than_atm, at_the_money)
+  
+  # 更新 result_list 中的数据
+  result_list[[date_str]] <- date_data
+}
+
+```
+
+
+*合并新旧数据*
+```{r}
+# 1 提取日期名称
+dates_A <- names(result_list)
+dates_B <- names(result_list_latest)
+all_dates <- sort(unique(c(dates_A, dates_B)), decreasing = TRUE)  # 降序排列
+
+# 2 创建新 list
+result_list_combine <- list()
+
+# 3 合并逻辑
+for (d in all_dates) {
+  if (d %in% dates_A & d %in% dates_B) {
+    # 两边都有该日期 → 合并并去重
+    df_A <- result_list[[d]]
+    df_B <- result_list_latest[[d]]
+    merged_df <- bind_rows(df_A, df_B) %>% distinct()
+    result_list_combine[[d]] <- merged_df
+  } else if (d %in% dates_A) {
+    # 仅在 A 中
+    result_list_combine[[d]] <- result_list[[d]]
+  } else {
+    # 仅在 B 中
+    result_list_combine[[d]] <- result_list_latest[[d]]
+  }
+}
+
+# 4 去除每个数据框中的 NA 行
+for (d in names(result_list_combine)) {
+  result_list_combine[[d]] <- result_list_combine[[d]] %>% filter(if_any(everything(), ~ !is.na(.)))
+}
+
+```
+
+
+*对比行权价格与标的收盘价，确定当日的平值期权（可能有多个）*
+```{r}
+ID$Exercise_Price <- as.numeric(ID$Exercise_Price)
+# 复制 result_list_combine
+At_the_money <- result_list_combine  
+
+# 遍历每个日期的数据，筛选最接近 at-the-money 的记录
+At_the_money <- lapply(At_the_money, function(date_data) {
+  # 计算差值（注意 exercise price 要除以 100）
+  date_data <- date_data %>%
+    mutate(diff = abs(Target_Close_Price - Exercise_Price))
+  
+  # 找到最小差值
+  min_diff <- min(date_data$diff, na.rm = TRUE)
+  
+  # 保留最小差值的行（可能有多个）
+  date_data <- date_data %>% filter(diff == min_diff)
+  
+  return(date_data)
+})
+
+```
+
+*筛选掉临近到期日的合约*
+```{r}
+library(lubridate)
+
+for (i in seq_along(At_the_money)) {
+  current_date <- as.Date(names(At_the_money)[i])  # 提取表名的日期
+  df <- At_the_money[[i]]
+  
+  # 确保到期日是日期类型
+  df$Expire_Date <- as.Date(df$Expire_Date)
+  
+  # 筛选：到期日距离当前日期 > 1 天
+  df <- df[df$Expire_Date - current_date > 1, ]
+  
+  # 回写
+  At_the_money[[i]] <- df
+}
+
+```
+
+
+*按每日最大成交量筛选主力合约*
+```{r}
+# 每日取平值期权成交量最大的合约
+atm_max_vol <- lapply(At_the_money, function(date_data) {
+  if(nrow(date_data) == 0) return(date_data[0, ])  # 空表处理
+  
+  max_vol <- max(date_data$Volume, na.rm = TRUE)
+  date_data %>% filter(Volume == max_vol)
+})
+
+# 合并成总表，并去掉 diff
+atm_max_vol_df <- bind_rows(atm_max_vol, .id = "Date") %>%
+  select(-diff)
+```
+
+
+## *计算隐含波动率* 
+```{r}
+##########################  Black-Scholes 欧式看涨期权定价公式  ###################################
+
+bs_call_price <- function(S, K, r, T, sigma) {
+  d1 <- (log(S/K) + (r + 0.5*sigma^2)*T) / (sigma*sqrt(T))
+  d2 <- d1 - sigma*sqrt(T)
+  C <- S * pnorm(d1) - K * exp(-r*T) * pnorm(d2)
+  return(C)
+}
+
+# 用市场价格反解隐含波动率
+implied_vol_call <- function(C_market, S, K, r, T, 
+                        sigma_lower=1e-6, sigma_upper=5) {
+  # 检查输入有效性
+  if (C_market <= max(S - K * exp(-r*T), 0) || C_market > S) {
+    return(NA)  # 期权价格超出合理范围
+  }
+  
+  tryCatch({
+    uniroot(function(sigma) bs_call_price(S, K, r, T, sigma) - C_market, 
+            lower=sigma_lower, upper=sigma_upper)$root
+  }, error=function(e) {
+    # 打印错误信息以便调试
+    message(sprintf("IV calculation failed for S=%.4f, K=%.4f, T=%.4f, C=%.4f, r=%.4f: %s", 
+                    S, K, T, C_market, r, e$message))
+    NA
+  })
+}
+
+# 计算隐含波动率
+calculate_iv_call <- function(df) {
+  df %>%
+    mutate(
+      # 确保日期列是正确的格式
+      Date = as.Date(Date),
+      Expire_Date = as.Date(Expire_Date),
+      
+      # 计算剩余时间（以年为单位）
+      T = as.numeric(difftime(Expire_Date, Date, units = "days")) / 365,
+      
+      # 计算隐含波动率
+      IV = mapply(
+        function(c_market, S, K, r, T_val) {
+          # 检查输入是否有效
+          if (is.na(c_market) || is.na(S) || is.na(K) || is.na(r) || is.na(T_val) || 
+              T_val <= 0 || S <= 0 || K <= 0 || c_market <= 0) {
+            return(NA)
+          }
+          
+          # 调用隐含波动率计算函数
+          implied_vol_call(c_market, S, K, r/100, T_val)  # 注意：rf是百分比，需要除以100
+        },
+        Close_Price, Target_Close_Price, Exercise_Price, rf, T
+      )
+    ) %>%
+    select(-T)  # 删除临时列
+}
+
+
+
+
+##########################  Black-Scholes 欧式看跌期权定价公式  ###################################
+
+bs_put_price <- function(S, K, r, T, sigma) {
+  d1 <- (log(S/K) + (r + 0.5*sigma^2)*T) / (sigma*sqrt(T))
+  d2 <- d1 - sigma*sqrt(T)
+  P <- K * exp(-r*T) * pnorm(-d2) - S * pnorm(-d1)
+  return(P)
+}
+
+# 用市场价格反解隐含波动率（针对看跌期权）
+implied_vol_put <- function(P_market, S, K, r, T, 
+                            sigma_lower=1e-6, sigma_upper=5) {
+  # 检查输入有效性
+  if (P_market <= max(K * exp(-r*T) - S, 0) || P_market > S) {
+    return(NA)  # 期权价格超出合理范围
+  }
+  
+  tryCatch({
+    uniroot(function(sigma) bs_put_price(S, K, r, T, sigma) - P_market, 
+            lower=sigma_lower, upper=sigma_upper)$root
+  }, error=function(e) {
+    # 打印错误信息以便调试
+    message(sprintf("IV calculation failed for S=%.4f, K=%.4f, T=%.4f, P=%.4f, r=%.4f: %s", 
+                    S, K, T, P_market, r, e$message))
+    NA
+  })
+}
+
+# 计算隐含波动率（针对看跌期权）
+calculate_iv_put <- function(df) {
+  df %>%
+    mutate(
+      # 确保日期列是正确的格式
+      Date = as.Date(Date),
+      Expire_Date = as.Date(Expire_Date),
+      
+      # 计算剩余时间（以年为单位）
+      T = as.numeric(difftime(Expire_Date, Date, units = "days")) / 365,
+      
+      # 计算隐含波动率
+      IV = mapply(
+        function(p_market, S, K, r, T_val) {
+          # 检查输入是否有效
+          if (is.na(p_market) || is.na(S) || is.na(K) || is.na(r) || is.na(T_val) || 
+              T_val <= 0 || S <= 0 || K <= 0 || p_market <= 0) {
+            return(NA)
+          }
+          
+          # 调用隐含波动率计算函数
+          implied_vol_put(p_market, S, K, r/100, T_val)  # 注意：rf是百分比，需要除以100
+        },
+        Close_Price, Target_Close_Price, Exercise_Price, rf, T
+      )
+    ) %>%
+    select(-T)  # 删除临时列
+}
+
+```
+
+```{r}
+if (type == "call"){
+  # 应用函数计算IV（针对看涨期权）
+  atm_max_vol_df <- calculate_iv_call(atm_max_vol_df)
+} else if (type == "put") {
+  # 应用函数计算IV（针对看跌期权）
+  atm_max_vol_df <- calculate_iv_put(atm_max_vol_df)
+}
+
+```
+
+
+
+*更新IV数据，保存更新后的往期数据*
+```{r}
+library(openxlsx)
+result_list_latest <- result_list_combine
+atm_max_vol_df_latest <- atm_max_vol_df
+
+if (type == "call"){
+  # 针对看涨期权
+  write.xlsx(atm_max_vol_df_latest, file = "IV_call_results.xlsx")
+  save(result_list_latest, atm_max_vol_df_latest, file = "call_data.RData")
+} else if (type == "put") {
+  # 针对看跌期权
+  write.xlsx(atm_max_vol_df_latest, file = "IV_put_results.xlsx")
+  save(result_list_latest, atm_max_vol_df_latest, file = "put_data.RData")
+}
+```

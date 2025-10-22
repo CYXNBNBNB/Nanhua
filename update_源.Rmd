@@ -649,7 +649,8 @@ iv_cone <- atm_max_vol_df_latest %>%
     median = quantile(mean_IV, 0.5, na.rm = TRUE),
     p75 = quantile(mean_IV, 0.75, na.rm = TRUE),
     p95 = quantile(mean_IV, 0.95, na.rm = TRUE)
-  )
+  ) %>%
+  arrange(Expire_Date)
 
 #------------------------------
 # 提取最新日期的当前IV（用于红点标记）
@@ -658,113 +659,121 @@ latest_date <- max(atm_max_vol_df_latest$Date, na.rm = TRUE)
 current_iv <- atm_max_vol_df_latest %>%
   filter(Date == latest_date) %>%
   group_by(Expire_Date) %>%
-  summarise(current_IV = mean(IV, na.rm = TRUE))
+  summarise(current_IV = mean(IV, na.rm = TRUE)) %>%
+  arrange(Expire_Date)
 
 #------------------------------
 # 绘制 Plotly 波动率锥 + 滑动条布局
 #------------------------------
 fig <- plot_ly() %>%
-  # 灰色区间（5%-95%）
+  #-------------------------------------------------------
+  # 5%-95% 灰色区间 / Gray band for 5%-95%
+  #-------------------------------------------------------
   add_trace(
     data = iv_cone,
-    x = ~Expire_Date,
-    y = ~p95,
-    type = "scatter",
-    mode = "lines",
+    x = ~Expire_Date, y = ~p95,
+    type = "scatter", mode = "lines",
     line = list(color = "lightgray"),
-    name = "95分位",
-    showlegend = FALSE
+    name = "95分位"
   ) %>%
   add_trace(
     data = iv_cone,
-    x = ~Expire_Date,
-    y = ~p5,
-    type = "scatter",
-    mode = "lines",
-    fill = "tonexty",
-    fillcolor = "rgba(211,211,211,0.3)",
+    x = ~Expire_Date, y = ~p5,
+    type = "scatter", mode = "lines",
+    fill = "tonexty", fillcolor = "rgba(211,211,211,0.3)",
     line = list(color = "lightgray"),
-    name = "5分位",
-    showlegend = TRUE
+    name = "5%-95% 区间"
   ) %>%
-  # 蓝色区间（25%-75%）
+  #-------------------------------------------------------
+  # 25%-75% 蓝色区间 / Blue band for 25%-75%
+  #-------------------------------------------------------
   add_trace(
     data = iv_cone,
-    x = ~Expire_Date,
-    y = ~p75,
-    type = "scatter",
-    mode = "lines",
+    x = ~Expire_Date, y = ~p75,
+    type = "scatter", mode = "lines",
     line = list(color = "skyblue"),
-    name = "75分位",
-    showlegend = FALSE
+    name = "75分位"
   ) %>%
   add_trace(
     data = iv_cone,
-    x = ~Expire_Date,
-    y = ~p25,
-    type = "scatter",
-    mode = "lines",
-    fill = "tonexty",
-    fillcolor = "rgba(135,206,235,0.4)",
+    x = ~Expire_Date, y = ~p25,
+    type = "scatter", mode = "lines",
+    fill = "tonexty", fillcolor = "rgba(135,206,235,0.4)",
     line = list(color = "skyblue"),
-    name = "25分位",
-    showlegend = TRUE
+    name = "25%-75% 区间"
   ) %>%
-  # 中位数
+  #-------------------------------------------------------
+  # 中位数线 / Median line
+  #-------------------------------------------------------
   add_trace(
     data = iv_cone,
-    x = ~Expire_Date,
-    y = ~median,
-    type = "scatter",
-    mode = "lines+markers",
-    line = list(color = "steelblue", width = 3),
-    marker = list(size = 5, color = "steelblue"),
-    name = "中位数"
+    x = ~Expire_Date, y = ~median,
+    type = "scatter", mode = "lines+markers",
+    line = list(color = "#0055AA", width = 3),
+    marker = list(size = 6, color = "#0055AA"),
+    name = "中位数 (Median)"
   ) %>%
-  # 当前IV（红点）
+  #-------------------------------------------------------
+  # 当前IV（红色菱形）/ Current IV (red diamond marker)
+  #-------------------------------------------------------
   add_trace(
     data = current_iv,
-    x = ~Expire_Date,
-    y = ~current_IV,
-    type = "scatter",
-    mode = "markers+text",
-    marker = list(size = 8, color = "red"),
+    x = ~Expire_Date, y = ~current_IV,
+    type = "scatter", mode = "markers+text",
+    marker = list(size = 10, color = "red", symbol = "diamond"),
     text = ~paste0("当前IV: ", round(current_IV, 4)),
     textposition = "top center",
     name = paste0("当前IV (", latest_date, ")")
   ) %>%
+  #-------------------------------------------------------
+  # 布局设置 / Layout customization
+  #-------------------------------------------------------
   layout(
-    title = list(
-      text = paste0("隐含波动率锥 - 截止日期：", latest_date),
-      x = 0.8, 
-      font = list(size = 20, family = "Microsoft YaHei", color = "#333")
-    ),
-    xaxis = list(
-      title = "到期日",
-      type = "date",
-      tickformat = "%Y-%m-%d",
-      rangeslider = list(visible = TRUE),
-      rangeselector = list(
-        buttons = list(
-          list(count = 7, label = "1周", step = "day", stepmode = "backward"),
-          list(count = 1, label = "1月", step = "month", stepmode = "backward"),
-          list(count = 3, label = "3月", step = "month", stepmode = "backward"),
-          list(count = 6, label = "半年", step = "month", stepmode = "backward"),
-          list(step = "all", label = "全部")
-        )
+  title = list(
+    text = paste0("隐含波动率锥（Implied Volatility Cone） - 截止日期：", latest_date),
+    x = 0.5,
+    xanchor = "center",
+    font = list(size = 20, family = "Microsoft YaHei", color = "#333")
+  ),
+  xaxis = list(
+    title = "到期日 (Expiration Date)",
+    type = "date",
+    tickformat = "%Y-%m-%d",
+    rangeslider = list(visible = TRUE),
+    rangeselector = list(
+      buttons = list(
+        list(count = 14, label = "2周", step = "day", stepmode = "backward"),
+        list(count = 1, label = "1月", step = "month", stepmode = "backward"),
+        list(count = 3, label = "3月", step = "month", stepmode = "backward"),
+        list(count = 6, label = "半年", step = "month", stepmode = "backward"),
+        list(step = "all", label = "全部")
       )
-    ),
-    yaxis = list(
-      title = "隐含波动率 (IV)",
-      tickformat = ".1%",
-      rangemode = "tozero"
-    ),
-    hovermode = "x unified",
-    legend = list(orientation = "h", y = -0.2),
-    plot_bgcolor = "#fafafa",
-    paper_bgcolor = "#ffffff",
-    margin = list(t = 70)
-  )
+    )
+  ),
+  yaxis = list(
+    title = "隐含波动率 (Implied Volatility)",
+    tickformat = ".1%",
+    rangemode = "tozero",
+    domain = c(0.0, 1)
+  ),
+  hovermode = "x unified",
+  legend = list(
+    orientation = "h",        # 水平排列
+    x = 0.5,                  # 居中
+    y = 1.02,                  # 调整图例高度
+    xanchor = "center",
+    yanchor = "bottom",
+    bgcolor = "rgba(255,255,255,0.9)",
+    bordercolor = "rgba(0,0,0,0.1)",
+    borderwidth = 1,
+    font = list(size = 12, family = "Microsoft YaHei")
+  ),
+  plot_bgcolor = "#fafafa",
+  paper_bgcolor = "#ffffff",
+  margin = list(t = 120)  # 💡 增加顶部留白，避免标题与图例重叠
+)
+
+
 
 #------------------------------
 # 显示图形

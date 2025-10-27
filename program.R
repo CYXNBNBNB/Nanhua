@@ -578,6 +578,21 @@ server <- function(input, output, session) {
       }
     }
     
+    for(id in ids) {
+      if(id %in% colnames(close_price) && id %in% colnames(volume)) {
+        expiry_date <- ID$Expire_Date[ID[[1]] == id]
+        
+        if(!is.na(expiry_date)) {
+          expire_after_indices <- which(close_price$时间 > expiry_date)
+          
+          if(length(expire_after_indices) > 0) {
+            close_price[expire_after_indices, id] <- 0
+            volume[expire_after_indices, id] <- 0
+          }
+        }
+      }
+    }
+    
     # ----------------------
     # 筛选缺失日期
     # ----------------------

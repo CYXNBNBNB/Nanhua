@@ -14,53 +14,44 @@ library(plotly)
 ```
 
 
-*导入历史数据*
+## *导入历史数据*
 ```{r}
 #输入认购（call）or 认沽（put）
 type <- "call"
 
 if (type == "call"){
-  # 针对看涨期权
   load("call_data.RData")
 } else if (type == "put") {
-  # 针对看跌期权
   load("put_data.RData")
 }
 ```
 
 
 ```{r}
-# 封装一个读取和清洗函数
 clean <- function(df) {
- 
-  # 把第二行第1列的数据放到第一行第1列
+
   df[1, 1] <- df[2, 1]
-  # 删除第二行
+
   df <- df[-2, ]
-  
-  # 第一行设为列名
+
   colnames(df) <- as.character(unlist(df[1, ]))
   df <- df[-1, ]
-  
-  # 日期列转换（Excel 数值 → Date）
+
   df[[1]] <- as.Date(as.numeric(df[[1]]), origin = "1899-12-30")
-  
-   # 除第一列外的所有列都转换为 numeric
+
   if(ncol(df) > 1) {
     df[,-1] <- lapply(df[,-1], function(x) suppressWarnings(as.numeric(x)))
   }
-  
-  # 返回结果
+
   return(df)
 }
 ```
 
-*导入新数据*
+## *导入新数据*
 ```{r}
-# 在文件开头定义配置，方便修改
+# 在此处修改要导入的文件名
 file_path <- "中证1000认购update.xlsx"
 
-# 一次性读取所有数据
 close_price <- suppressMessages(read_excel(file_path, sheet = "收盘价", col_names = FALSE, skip = 2))
 exercise_price <- suppressMessages(read_excel(file_path, sheet = "行权价格", col_names = FALSE, skip = 2))
 target_close_price <- suppressMessages(read_excel(file_path, sheet = "标的收盘价", col_names = FALSE, skip = 2))
@@ -94,7 +85,7 @@ if(!all(nrow(volume) == nrow(close_price),
   stop("所有数据的行数必须相同")
 }
 
-if(!all(ncol(volume)-1 == nrow(ID))) {  #第一列是时间
+if(!all(ncol(volume)-1 == nrow(ID))) {
   stop("所有数据的ID必须相同")
 }
 
@@ -107,13 +98,9 @@ if(!all(ncol(volume)-1 == nrow(ID))) {  #第一列是时间
 latest_date <- as.Date(names(result_list_latest)[1])
 today <- Sys.Date()
 
-# 添加保护：如果 latest_date + 1 > today - 1，直接返回空序列
 if (latest_date + 1 > today - 1) {
-  diff_dates <- diff_dates <- close_price$时间[close_price$时间 != today]  
-                                      # 那就重新检查除了今天的全部数据是否都在
+  diff_dates <- close_price$时间[close_price$时间 != today]
 } else {
-  # 找出两者之间的日期（不包含这两个端点）
-  #找出缺失的日期序列
   diff_dates <- seq(from = latest_date + 1, to = today - 1, by = "day")
   diff_dates <- diff_dates[diff_dates %in% volume$时间]
 }
@@ -124,37 +111,31 @@ print(diff_dates)
 
 *将expire_date，exercise_price写入ID*
 ```{r}
-# 获取所有ID名称
+
 ids <- as.character(ID[[1]])
 
-# 为ID数据框添加到期日列和执行价格列
-ID$Expire_Date <- as.Date(NA) # 创建到期日空列
-ID$Exercise_Price <- NA_real_  # 创建执行价格空列，数值类型
+ID$Expire_Date <- as.Date(NA)
+ID$Exercise_Price <- NA_real_
 
-# 合并填充到期日和执行价格
 for(i in 1:length(ids)) {
   id <- ids[i]
-  
-  # 填充到期日
+
   if(id %in% colnames(expire_date)) {
-    # 获取该ID的到期日（排除NA值）
+
     expiry <- na.omit(expire_date[[id]])
     if(length(expiry) > 0) {
-      ID$Expire_Date[i] <- expiry[1] # 取第一个非NA值
+      ID$Expire_Date[i] <- expiry[1]
     }
   }
-  
-  # 填充执行价格
+
   if(id %in% colnames(exercise_price)) {
-    # 获取该ID的执行价格（排除NA值）
+
     exercise_price_vals <- na.omit(exercise_price[[id]])
     if(length(exercise_price_vals) > 0) {
-      ID$Exercise_Price[i] <- exercise_price_vals[1] # 取第一个非NA值
+      ID$Exercise_Price[i] <- exercise_price_vals[1]
     }
   }
 }
-
-
 
 ```
 
@@ -162,14 +143,11 @@ for(i in 1:length(ids)) {
 ```{r}
 for(id in ids) {
   if(id %in% colnames(close_price) && id %in% colnames(volume)) {
-    # 获取该ID的到期日
     expiry_date <- ID$Expire_Date[ID[[1]] == id]
     
     if(!is.na(expiry_date)) {
-      # 找到到期日之后的日期索引
       expire_after_indices <- which(close_price$时间 > expiry_date)
       
-      # 将这些索引对应的值设为0
       if(length(expire_after_indices) > 0) {
         close_price[expire_after_indices, id] <- 0
         volume[expire_after_indices, id] <- 0
@@ -181,26 +159,20 @@ for(id in ids) {
 
 *筛选需要日期的数据*
 ```{r}
-# 创建结果列表
 update_list <- list()
 
-# 遍历每个日期，只处理 diff_dates
 for(i in 1:nrow(volume)) {
   current_date <- volume$时间[i]
-  
-  # 只处理 diff_dates 中的日期
+
   if(current_date %in% diff_dates) {
-    
-    # 提取该日期的所有ID和对应的数据
-    volume_values <- as.numeric(volume[i, -1]) # 排除第一列(日期)
+
+    volume_values <- as.numeric(volume[i, -1])
     close_price_values <- as.numeric(close_price[i, -1])
     target_close_price_values <- as.numeric(target_close_price[i, -1])
-    
-    # 获取每个ID的到期日和行权价格
+
     expire_date_values <- ID$Expire_Date[match(ids, ID[[1]])]
-    exercise_price_values <- ID$Exercise_Price[match(ids, ID[[1]])] #### 需不需要过滤掉到期日的数据
-    
-    # 创建数据框
+    exercise_price_values <- ID$Exercise_Price[match(ids, ID[[1]])]
+
     date_data <- data.frame(
       ID = ids,
       Volume = volume_values,
@@ -210,14 +182,12 @@ for(i in 1:nrow(volume)) {
       Exercise_Price = exercise_price_values,
       stringsAsFactors = FALSE
     )
-    
-    # 过滤掉成交量和收盘价都为0或NA的记录
+
     date_data <- subset(
       date_data,
       !( (is.na(Volume) | Volume == 0) & (is.na(Close_Price) | Close_Price == 0) )
     )
-    
-    # 如果有有效数据，添加到结果列表
+
     if(nrow(date_data) > 0 && !all(is.na(date_data[, -1]))) {
       update_list[[as.character(current_date)]] <- date_data
     }
@@ -231,10 +201,8 @@ cat("处理完成，有效日期数量:", length(update_list), "\n")
 
 *添加无风险利率rf，使其与日期匹配*
 ```{r}
-# 统一类型
 rf$时间 <- as.Date(rf$时间)
 
-# 循环添加 rf 列
 for(date_str in names(update_list)) {
   current_date <- as.Date(date_str)
   
@@ -248,7 +216,6 @@ for(date_str in names(update_list)) {
   }
 }
 
-# 检查缺失
 missing_rf_dates <- sapply(update_list, function(x) all(is.na(x$rf)))
 if(any(missing_rf_dates)) {
   cat("以下日期缺少rf值:", toString(names(update_list)[missing_rf_dates]), "\n")
@@ -261,47 +228,35 @@ if(any(missing_rf_dates)) {
 
 *level 排序 实值期权\虚值期权*
 ```{r}
-#在所有行权价大于平值期权的行权价的里面最小的那个设为1，第二小的设为2……，所有行权价小于平值期权的行权价的最大的那个设为-1，第二大的设为-2……允许并列
-
-# 为每个日期的数据框添加 'level' 列
 for(date_str in names(update_list)) {
   date_data <- update_list[[date_str]]
-  
-  # 计算行权价格与标的收盘价的差值
+
   date_data <- date_data %>%
     mutate(diff = abs(Target_Close_Price - Exercise_Price))
-  
-  # 找到与标的收盘价最接近的期权，标记为平值期权 (level = 0)
+
   min_diff_idx <- which.min(date_data$diff)
-  date_data$level <- 0  # 默认值为0
-  
-  # 获取平值期权的行权价
+  date_data$level <- 0
+
   at_the_money_strike <- date_data$Exercise_Price[min_diff_idx]
-  
-  # 分离出大于平值期权的期权和小于平值期权的期权
+
   greater_than_atm <- date_data %>%
     filter(Exercise_Price > at_the_money_strike)
   less_than_atm <- date_data %>%
     filter(Exercise_Price < at_the_money_strike)
-  
-  # 保留平值期权
+
   at_the_money <- date_data %>%
     filter(Exercise_Price == at_the_money_strike)
-  
-  # 对大于平值期权的期权按行权价升序排序，并编号（并列）
+
   greater_than_atm <- greater_than_atm %>%
     arrange(Exercise_Price) %>%
-    mutate(level = dense_rank(Exercise_Price))  # 使用dense_rank处理并列
+    mutate(level = dense_rank(Exercise_Price))
 
-  # 对小于平值期权的期权按行权价降序排序，并编号（并列）
   less_than_atm <- less_than_atm %>%
     arrange(desc(Exercise_Price)) %>%
-    mutate(level = -dense_rank(desc(Exercise_Price)))  # 使用dense_rank处理并列并反向编号
+    mutate(level = -dense_rank(desc(Exercise_Price)))
 
-  # 合并大于平值期权、小于平值期权以及平值期权
   date_data <- bind_rows(greater_than_atm, less_than_atm, at_the_money)
-  
-  # 更新 result_list 中的数据
+
   update_list[[date_str]] <- date_data
 }
 
@@ -311,19 +266,15 @@ for(date_str in names(update_list)) {
 *对比行权价格与标的收盘价，确定当日的平值期权（可能有多个）*
 ```{r}
 ID$Exercise_Price <- as.numeric(ID$Exercise_Price)
-# 复制 update_list
 At_the_money <- update_list  
 
-# 遍历每个日期的数据，筛选最接近 at-the-money 的记录
 At_the_money <- lapply(At_the_money, function(date_data) {
-  # 计算差值（注意 exercise price 要除以 100）
+
   date_data <- date_data %>%
     mutate(diff = abs(Target_Close_Price - Exercise_Price))
   
-  # 找到最小差值
   min_diff <- min(date_data$diff, na.rm = TRUE)
-  
-  # 保留最小差值的行（可能有多个）
+
   date_data <- date_data %>% filter(diff == min_diff)
   
   return(date_data)
@@ -332,21 +283,20 @@ At_the_money <- lapply(At_the_money, function(date_data) {
 ```
 
 
-*筛选掉临近到期日的合约*
+
+## *筛选掉临近到期日的合约*
 ```{r}
 library(lubridate)
 
 for (i in seq_along(At_the_money)) {
-  current_date <- as.Date(names(At_the_money)[i])  # 提取表名的日期
+  current_date <- as.Date(names(At_the_money)[i])
   df <- At_the_money[[i]]
-  
-  # 确保到期日是日期类型
+
   df$Expire_Date <- as.Date(df$Expire_Date)
   
   # 筛选：到期日距离当前日期 > 1 天
   df <- df[df$Expire_Date - current_date > 1, ]
-  
-  # 回写
+
   At_the_money[[i]] <- df
 }
 
@@ -355,21 +305,19 @@ for (i in seq_along(At_the_money)) {
 
 *按每日最大成交量筛选主力合约*
 ```{r}
-# 每日取平值期权成交量最大的合约
 atm_max_vol <- lapply(At_the_money, function(date_data) {
-  if(nrow(date_data) == 0) return(date_data[0, ])  # 空表处理
+  if(nrow(date_data) == 0) return(date_data[0, ])
   
   max_vol <- max(date_data$Volume, na.rm = TRUE)
   date_data %>% filter(Volume == max_vol)
 })
 
-# 合并成总表，并去掉 diff
 atm_max_vol_df <- bind_rows(atm_max_vol, .id = "Date") %>%
   select(-diff)
 ```
 
 
-## *计算隐含波动率* 
+*计算隐含波动率* 
 ```{r}
 ##########################  Black-Scholes 欧式看涨期权定价公式  ###################################
 
@@ -380,52 +328,47 @@ bs_call_price <- function(S, K, r, T, sigma) {
   return(C)
 }
 
-# 用市场价格反解隐含波动率
 implied_vol_call <- function(C_market, S, K, r, T, 
                         sigma_lower=1e-6, sigma_upper=5) {
-  # 检查输入有效性
+
   if (C_market <= max(S - K * exp(-r*T), 0) || C_market > S) {
-    return(NA)  # 期权价格超出合理范围
+    return(NA)  
   }
   
   tryCatch({
     uniroot(function(sigma) bs_call_price(S, K, r, T, sigma) - C_market, 
             lower=sigma_lower, upper=sigma_upper)$root
   }, error=function(e) {
-    # 打印错误信息以便调试
+
     message(sprintf("IV calculation failed for S=%.4f, K=%.4f, T=%.4f, C=%.4f, r=%.4f: %s", 
                     S, K, T, C_market, r, e$message))
     NA
   })
 }
 
-# 计算隐含波动率
 calculate_iv_call <- function(df) {
   df %>%
     mutate(
-      # 确保日期列是正确的格式
+
       Date = as.Date(Date),
       Expire_Date = as.Date(Expire_Date),
-      
-      # 计算剩余时间（以年为单位）
+
       T = as.numeric(difftime(Expire_Date, Date, units = "days")) / 365,
-      
-      # 计算隐含波动率
+
       IV = mapply(
         function(c_market, S, K, r, T_val) {
-          # 检查输入是否有效
+
           if (is.na(c_market) || is.na(S) || is.na(K) || is.na(r) || is.na(T_val) || 
               T_val <= 0 || S <= 0 || K <= 0 || c_market <= 0) {
             return(NA)
           }
-          
-          # 调用隐含波动率计算函数
-          implied_vol_call(c_market, S, K, r/100, T_val)  # 注意：rf是百分比，需要除以100
+
+          implied_vol_call(c_market, S, K, r/100, T_val)
         },
         Close_Price, Target_Close_Price, Exercise_Price, rf, T
       )
     ) %>%
-    select(-T)  # 删除临时列
+    select(-T)
 }
 
 
@@ -440,62 +383,52 @@ bs_put_price <- function(S, K, r, T, sigma) {
   return(P)
 }
 
-# 用市场价格反解隐含波动率（针对看跌期权）
 implied_vol_put <- function(P_market, S, K, r, T, 
                             sigma_lower=1e-6, sigma_upper=5) {
-  # 检查输入有效性
+
   if (P_market <= max(K * exp(-r*T) - S, 0) || P_market > S) {
-    return(NA)  # 期权价格超出合理范围
+    return(NA)
   }
   
   tryCatch({
     uniroot(function(sigma) bs_put_price(S, K, r, T, sigma) - P_market, 
             lower=sigma_lower, upper=sigma_upper)$root
   }, error=function(e) {
-    # 打印错误信息以便调试
     message(sprintf("IV calculation failed for S=%.4f, K=%.4f, T=%.4f, P=%.4f, r=%.4f: %s", 
                     S, K, T, P_market, r, e$message))
     NA
   })
 }
 
-# 计算隐含波动率（针对看跌期权）
 calculate_iv_put <- function(df) {
   df %>%
     mutate(
-      # 确保日期列是正确的格式
       Date = as.Date(Date),
       Expire_Date = as.Date(Expire_Date),
-      
-      # 计算剩余时间（以年为单位）
+
       T = as.numeric(difftime(Expire_Date, Date, units = "days")) / 365,
-      
-      # 计算隐含波动率
+
       IV = mapply(
         function(p_market, S, K, r, T_val) {
-          # 检查输入是否有效
           if (is.na(p_market) || is.na(S) || is.na(K) || is.na(r) || is.na(T_val) || 
               T_val <= 0 || S <= 0 || K <= 0 || p_market <= 0) {
             return(NA)
           }
-          
-          # 调用隐含波动率计算函数
-          implied_vol_put(p_market, S, K, r/100, T_val)  # 注意：rf是百分比，需要除以100
+
+          implied_vol_put(p_market, S, K, r/100, T_val)
         },
         Close_Price, Target_Close_Price, Exercise_Price, rf, T
       )
     ) %>%
-    select(-T)  # 删除临时列
+    select(-T)
 }
 
 ```
 
 ```{r}
 if (type == "call"){
-  # 应用函数计算IV（针对看涨期权）
   atm_max_vol_df <- calculate_iv_call(atm_max_vol_df)
 } else if (type == "put") {
-  # 应用函数计算IV（针对看跌期权）
   atm_max_vol_df <- calculate_iv_put(atm_max_vol_df)
 }
 
@@ -504,32 +437,28 @@ if (type == "call"){
 
 *合并新旧数据 list*
 ```{r}
-# 1 提取日期名称
 dates_A <- names(result_list_latest)
 dates_B <- names(update_list)
-all_dates <- sort(unique(c(dates_A, dates_B)), decreasing = TRUE)  # 降序排列
+all_dates <- sort(unique(c(dates_A, dates_B)), decreasing = TRUE)
 
-# 2 创建新 list
 result_list <- list()
 
-# 3 合并逻辑
 for (d in all_dates) {
   if (d %in% dates_A & d %in% dates_B) {
-    # 两边都有该日期 → 合并并去重
+
     df_A <- result_list_latest[[d]]
     df_B <- update_list[[d]]
     merged_df <- bind_rows(df_A, df_B) %>% distinct()
     result_list[[d]] <- merged_df
   } else if (d %in% dates_A) {
-    # 仅在 A 中
+
     result_list[[d]] <- result_list_latest[[d]]
   } else {
-    # 仅在 B 中
+
     result_list[[d]] <- update_list[[d]]
   }
 }
 
-# 4 去除每个数据框中的 NA 行
 for (d in names(result_list)) {
   result_list[[d]] <- result_list[[d]] %>% filter(if_any(everything(), ~ !is.na(.)))
 }
@@ -538,7 +467,6 @@ for (d in names(result_list)) {
 
 *合并新旧数据 df*
 ```{r}
-# 合并新旧数据并去重
 result_df <- bind_rows(atm_max_vol_df, atm_max_vol_df_latest) %>%
   distinct() %>%
   arrange(desc(Date))
@@ -550,18 +478,16 @@ result_df <- bind_rows(atm_max_vol_df, atm_max_vol_df_latest) %>%
 
 
 
-*更新IV数据，保存更新后的往期数据*
+## *更新IV数据，保存更新后的往期数据*
 ```{r}
 library(openxlsx)
 result_list_latest <- result_list
 atm_max_vol_df_latest <- result_df
 
 if (type == "call"){
-  # 针对看涨期权
   write.xlsx(atm_max_vol_df_latest, file = "IV_call_results.xlsx")
   save(result_list_latest, atm_max_vol_df_latest, file = "call_data.RData")
 } else if (type == "put") {
-  # 针对看跌期权
   write.xlsx(atm_max_vol_df_latest, file = "IV_put_results.xlsx")
   save(result_list_latest, atm_max_vol_df_latest, file = "put_data.RData")
 }
@@ -570,12 +496,16 @@ if (type == "call"){
 
 
 
-*绘图*
+
+
+
+
+
+
+## *绘图*
 ```{r}
-# 确保日期格式正确
 atm_max_vol_df_latest$Date <- as.Date(atm_max_vol_df_latest$Date)
 
-# 创建交互式图表
 fig <- plot_ly(
   data = atm_max_vol_df_latest,
   x = ~Date,
@@ -590,7 +520,6 @@ fig <- plot_ly(
   )
 )
 
-# 添加布局
 fig <- fig %>%
   layout(
     title = list(
@@ -602,8 +531,8 @@ fig <- fig %>%
       title = "日期",
       type = "date",
       tickformat = "%Y-%m-%d",
-      rangeslider = list(visible = TRUE),  # ✅ 滑动条
-      rangeselector = list(                # ✅ 快捷时间选择
+      rangeslider = list(visible = TRUE), 
+      rangeselector = list( 
         buttons = list(
           list(count = 7, label = "1周", step = "day", stepmode = "backward"),
           list(count = 1, label = "1月", step = "month", stepmode = "backward"),
@@ -618,24 +547,21 @@ fig <- fig %>%
       tickformat = ".1%",
       rangemode = "tozero"
     ),
-    hovermode = "x unified",  # ✅ 悬停统一提示框
+    hovermode = "x unified", 
     plot_bgcolor = "#fafafa",
     paper_bgcolor = "#ffffff",
     margin = list(t = 70)
   )
 
-# 显示图表
+
 fig
 
 
 ```
 
 
-*隐含波动率锥*
+## *隐含波动率锥*
 ```{r}
-#------------------------------
-# 计算每个到期日的隐含波动率分布
-#------------------------------
 iv_cone <- atm_max_vol_df_latest %>%
   group_by(Expire_Date, Date) %>%
   summarise(mean_IV = mean(IV, na.rm = TRUE)) %>%
@@ -649,9 +575,6 @@ iv_cone <- atm_max_vol_df_latest %>%
   ) %>%
   arrange(Expire_Date)
 
-#------------------------------
-# 提取最新日期的当前IV（用于红点标记）
-#------------------------------
 latest_date <- max(atm_max_vol_df_latest$Date, na.rm = TRUE)
 current_iv <- atm_max_vol_df_latest %>%
   filter(Date == latest_date) %>%
@@ -659,13 +582,8 @@ current_iv <- atm_max_vol_df_latest %>%
   summarise(current_IV = mean(IV, na.rm = TRUE)) %>%
   arrange(Expire_Date)
 
-#------------------------------
-# 绘制 Plotly 波动率锥 + 滑动条布局
-#------------------------------
 fig <- plot_ly() %>%
-  #-------------------------------------------------------
-  # 5%-95% 灰色区间 / Gray band for 5%-95%
-  #-------------------------------------------------------
+
   add_trace(
     data = iv_cone,
     x = ~Expire_Date, y = ~p95,
@@ -681,9 +599,7 @@ fig <- plot_ly() %>%
     line = list(color = "lightgray"),
     name = "5%-95% 区间"
   ) %>%
-  #-------------------------------------------------------
-  # 25%-75% 蓝色区间 / Blue band for 25%-75%
-  #-------------------------------------------------------
+
   add_trace(
     data = iv_cone,
     x = ~Expire_Date, y = ~p75,
@@ -699,9 +615,7 @@ fig <- plot_ly() %>%
     line = list(color = "skyblue"),
     name = "25%-75% 区间"
   ) %>%
-  #-------------------------------------------------------
-  # 中位数线 / Median line
-  #-------------------------------------------------------
+
   add_trace(
     data = iv_cone,
     x = ~Expire_Date, y = ~median,
@@ -710,9 +624,7 @@ fig <- plot_ly() %>%
     marker = list(size = 6, color = "#0055AA"),
     name = "中位数 (Median)"
   ) %>%
-  #-------------------------------------------------------
-  # 当前IV（红色菱形）/ Current IV (red diamond marker)
-  #-------------------------------------------------------
+
   add_trace(
     data = current_iv,
     x = ~Expire_Date, y = ~current_IV,
@@ -722,9 +634,7 @@ fig <- plot_ly() %>%
     textposition = "top center",
     name = paste0("当前IV (", latest_date, ")")
   ) %>%
-  #-------------------------------------------------------
-  # 布局设置 / Layout customization
-  #-------------------------------------------------------
+
   layout(
   title = list(
     text = paste0("隐含波动率锥（Implied Volatility Cone） - 截止日期：", latest_date),
@@ -755,51 +665,39 @@ fig <- plot_ly() %>%
   ),
   hovermode = "x unified",
   legend = list(
-    orientation = "h",        # 水平排列
-    x = 0.5,                  # 居中
-    y = 1.03,                  # 调整图例高度
+    orientation = "h", 
+    x = 0.5, 
+    y = 1.02, 
     xanchor = "center",
     yanchor = "bottom",
     bgcolor = "rgba(255,255,255,0.9)",
     bordercolor = "rgba(0,0,0,0.1)",
     borderwidth = 1,
-    font = list(size = 10, family = "Microsoft YaHei")
+    font = list(size = 12, family = "Microsoft YaHei")
   ),
   plot_bgcolor = "#fafafa",
   paper_bgcolor = "#ffffff",
-  margin = list(t = 120)  # 💡 增加顶部留白，避免标题与图例重叠
+  margin = list(t = 120)
 )
 
 
-
-#------------------------------
-# 显示图形
-#------------------------------
 fig
+
 ```
 
 
-*历史波动率锥*
+## *历史波动率锥*
 ```{r}
 library(zoo)
 library(plotly)
 
-#----------------------------------------
-# Step 1: 计算每日对数收益率
-#----------------------------------------
 price_df <- atm_max_vol_df_latest %>%
   arrange(Date) %>%
   mutate(Return = log(Target_Close_Price / lag(Target_Close_Price))) %>%
   filter(!is.na(Return))
 
-#----------------------------------------
-# Step 2: 定义滚动窗口
-#----------------------------------------
 window_list <- c(10, 20, 60, 120)
 
-#----------------------------------------
-# Step 3: 计算滚动年化历史波动率
-#----------------------------------------
 hv_data <- data.frame()
 for (w in window_list) {
   hv_tmp <- price_df %>%
@@ -812,9 +710,6 @@ for (w in window_list) {
 
 hv_data <- hv_data %>% filter(!is.na(HV))
 
-#----------------------------------------
-# Step 4: 静态分位数（用所有数据计算一次）
-#----------------------------------------
 hv_cone_static <- hv_data %>%
   group_by(Window) %>%
   summarise(
@@ -825,26 +720,17 @@ hv_cone_static <- hv_data %>%
     p95 = quantile(HV, 0.95, na.rm = TRUE)
   )
 
-#----------------------------------------
-# Step 5: 动画红点数据
-#----------------------------------------
 hv_points <- hv_data %>%
   mutate(frame = as.character(Date)) %>%
   select(Window, HV, frame)
 
-#----------------------------------------
-# Step 6: 绘图优化版（避免滑条与图例重叠）
-#----------------------------------------
 p <- plot_ly() %>%
-  #-------------------------------------------------------
-  # 5%-95% 灰色区间 / Gray band for 5%-95%
-  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~p95,
     type = "scatter", mode = "lines",
     line = list(color = "lightgray"),
-    name = "95分位"
+    name = "95分位", showlegend = FALSE
   ) %>%
   add_trace(
     data = hv_cone_static,
@@ -852,17 +738,13 @@ p <- plot_ly() %>%
     type = "scatter", mode = "lines",
     fill = "tonexty", fillcolor = "rgba(211,211,211,0.3)",
     line = list(color = "lightgray"),
-    name = "5%-95% 区间"
+    name = "5-95分位区间", showlegend = TRUE
   ) %>%
-  #-------------------------------------------------------
-  # 25%-75% 蓝色区间 / Blue band for 25%-75%
-  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~p75,
     type = "scatter", mode = "lines",
-    line = list(color = "skyblue"),
-    name = "75分位"
+    line = list(color = "skyblue"), name = "75分位", showlegend = FALSE
   ) %>%
   add_trace(
     data = hv_cone_static,
@@ -870,20 +752,16 @@ p <- plot_ly() %>%
     type = "scatter", mode = "lines",
     fill = "tonexty", fillcolor = "rgba(135,206,235,0.4)",
     line = list(color = "skyblue"),
-    name = "25%-75% 区间"
+    name = "25-75分位区间", showlegend = TRUE
   ) %>%
-  #-------------------------------------------------------
-  # 中位数线 / Median line
-  #-------------------------------------------------------
   add_trace(
     data = hv_cone_static,
     x = ~Window, y = ~median,
     type = "scatter", mode = "lines+markers",
-    line = list(color = "#0055AA", width = 3),
-    marker = list(size = 6, color = "#0055AA"),
-    name = "中位数 (Median)"
+    line = list(color = "steelblue", width = 3),
+    marker = list(size = 5, color = "steelblue"),
+    name = "中位数"
   ) %>%
-  # 红点动画
   add_trace(
     data = hv_points,
     x = ~Window, y = ~HV,
@@ -920,11 +798,11 @@ p <- plot_ly() %>%
       orientation = "h",
       x = 0.5,
       xanchor = "center",
-      y = 1.03   # ✅ 图例往下挪，防止重叠滑条
+      y = -0.3 
     ),
     plot_bgcolor = "#fafafa",
     paper_bgcolor = "#ffffff",
-    margin = list(t = 80, b = 120) # ✅ 底部留出足够空间
+    margin = list(t = 80, b = 120)
   ) %>%
   animation_opts(
     frame = 100,
@@ -934,7 +812,7 @@ p <- plot_ly() %>%
   ) %>%
   animation_slider(
     currentvalue = list(prefix = "日期: ", font = list(color = "black")),
-    pad = list(t = 60)  # 滑条与图体保持距离
+    pad = list(t = 60)
   )
 
 p

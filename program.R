@@ -774,26 +774,10 @@ server <- function(input, output, session) {
     update_progress("合并主力合约数据...", 14)
     
     if (!is.null(hist_data) && !is.null(hist_data$atm_max_vol_df_latest)) {
-      dates_A <- unique(atm_max_vol_df$Date)
-      dates_B <- unique(hist_data$atm_max_vol_df_latest$Date)
-      all_dates <- sort(unique(c(dates_A, dates_B)), decreasing = TRUE)
-      
-      result_df <- data.frame()
-      
-      for (d in all_dates) {
-        if (d %in% dates_A & d %in% dates_B) {
-          df_A <- atm_max_vol_df[atm_max_vol_df$Date == d, ]
-          df_B <- hist_data$atm_max_vol_df_latest[hist_data$atm_max_vol_df_latest$Date == d, ]
-          merged_df <- bind_rows(df_A, df_B) %>% distinct()
-          result_df <- bind_rows(result_df, merged_df)
-        } else if (d %in% dates_A) {
-          result_df <- bind_rows(result_df, atm_max_vol_df[atm_max_vol_df$Date == d, ])
-        } else {
-          result_df <- bind_rows(result_df, hist_data$atm_max_vol_df_latest[hist_data$atm_max_vol_df_latest$Date == d, ])
-        }
-      }
-      
-      atm_max_vol_df <- result_df %>% filter(if_any(everything(), ~ !is.na(.)))
+      atm_max_vol_df <- bind_rows(atm_max_vol_df, hist_data$atm_max_vol_df_latest) %>%
+        distinct() %>%
+        arrange(desc(Date)) %>%
+        filter(if_any(everything(), ~ !is.na(.)))
     }
     
     update_progress("数据处理完成！", 15)
@@ -803,7 +787,6 @@ server <- function(input, output, session) {
       atm_max_vol_df = atm_max_vol_df,
       dates = sort(as.Date(names(update_list)))
     ))
-  })
   
   # 2️⃣ 处理平值期权 IV 计算
   atm_iv_data <- eventReactive(input$process, {

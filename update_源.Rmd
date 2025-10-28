@@ -308,28 +308,6 @@ for(date_str in names(update_list)) {
 ```
 
 
-
-## *筛选掉临近到期日的合约*
-```{r}
-library(lubridate)
-
-for (i in seq_along(update_list)) {
-  current_date <- as.Date(names(update_list)[i])  # 提取表名的日期
-  df <- update_list[[i]]
-  
-  # 确保到期日是日期类型
-  df$Expire_Date <- as.Date(df$Expire_Date)
-  
-  # 筛选：到期日距离当前日期 > 1 天
-  df <- df[df$Expire_Date - current_date > 1, ]
-  
-  # 回写
-  update_list[[i]] <- df
-}
-
-```
-
-
 *对比行权价格与标的收盘价，确定当日的平值期权（可能有多个）*
 ```{r}
 ID$Exercise_Price <- as.numeric(ID$Exercise_Price)
@@ -350,6 +328,27 @@ At_the_money <- lapply(At_the_money, function(date_data) {
   
   return(date_data)
 })
+
+```
+
+
+## *筛选掉临近到期日的合约*
+```{r}
+library(lubridate)
+
+for (i in seq_along(At_the_money)) {
+  current_date <- as.Date(names(At_the_money)[i])  # 提取表名的日期
+  df <- At_the_money[[i]]
+  
+  # 确保到期日是日期类型
+  df$Expire_Date <- as.Date(df$Expire_Date)
+  
+  # 筛选：到期日距离当前日期 > 1 天
+  df <- df[df$Expire_Date - current_date > 1, ]
+  
+  # 回写
+  At_the_money[[i]] <- df
+}
 
 ```
 
@@ -540,8 +539,12 @@ for (d in names(result_list)) {
 *合并新旧数据 df*
 ```{r}
 # 合并新旧数据并去重
+# 对每个日期，如果有重复，保留Volume最大的那个
 result_df <- bind_rows(atm_max_vol_df, atm_max_vol_df_latest) %>%
   distinct() %>%
+  group_by(Date) %>%
+  slice_max(Volume, n = 1, with_ties = FALSE) %>%  # 在每个日期组内，选择Volume最大的行
+  ungroup() %>%
   arrange(desc(Date))
 
 ```
@@ -632,7 +635,7 @@ fig
 ```
 
 
-*隐含波动率锥*
+## *隐含波动率锥*
 ```{r}
 #------------------------------
 # 计算每个到期日的隐含波动率分布
@@ -780,7 +783,7 @@ fig
 ```
 
 
-*历史波动率锥*
+## *历史波动率锥*
 ```{r}
 library(zoo)
 library(plotly)

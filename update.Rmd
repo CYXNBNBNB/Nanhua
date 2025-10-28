@@ -263,25 +263,6 @@ for(date_str in names(update_list)) {
 ```
 
 
-## *筛选掉临近到期日的合约*
-```{r}
-library(lubridate)
-
-for (i in seq_along(update_list)) {
-  current_date <- as.Date(names(update_list)[i])
-  df <- update_list[[i]]
-
-  df$Expire_Date <- as.Date(df$Expire_Date)
-  
-  # 筛选：到期日距离当前日期 > 1 天
-  df <- df[df$Expire_Date - current_date > 1, ]
-
-  update_list[[i]] <- df
-}
-
-```
-
-
 *对比行权价格与标的收盘价，确定当日的平值期权（可能有多个）*
 ```{r}
 ID$Exercise_Price <- as.numeric(ID$Exercise_Price)
@@ -298,6 +279,25 @@ At_the_money <- lapply(At_the_money, function(date_data) {
   
   return(date_data)
 })
+
+```
+
+
+## *筛选掉临近到期日的合约*
+```{r}
+library(lubridate)
+
+for (i in seq_along(At_the_money)) {
+  current_date <- as.Date(names(At_the_money)[i])
+  df <- At_the_money[[i]]
+
+  df$Expire_Date <- as.Date(df$Expire_Date)
+  
+  # 筛选：到期日距离当前日期 > 1 天
+  df <- df[df$Expire_Date - current_date > 1, ]
+
+  At_the_money[[i]] <- df
+}
 
 ```
 
@@ -468,6 +468,9 @@ for (d in names(result_list)) {
 ```{r}
 result_df <- bind_rows(atm_max_vol_df, atm_max_vol_df_latest) %>%
   distinct() %>%
+  group_by(Date) %>%
+  slice_max(Volume, n = 1, with_ties = FALSE) %>% 
+  ungroup() %>%
   arrange(desc(Date))
 
 ```

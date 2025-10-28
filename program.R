@@ -769,13 +769,16 @@ server <- function(input, output, session) {
     }
     
     # ----------------------
-    # 合并历史数据 - atm_max_vol_df
+    # 合并历史数据
     # ----------------------
     update_progress("合并主力合约数据...", 14)
     
     if (!is.null(hist_data) && !is.null(hist_data$atm_max_vol_df_latest)) {
       atm_max_vol_df <- bind_rows(atm_max_vol_df, hist_data$atm_max_vol_df_latest) %>%
         distinct() %>%
+        group_by(Date) %>%
+        slice_max(Volume, n = 1, with_ties = FALSE) %>% 
+        ungroup() %>%
         arrange(desc(Date)) %>%
         filter(if_any(everything(), ~ !is.na(.)))
     }

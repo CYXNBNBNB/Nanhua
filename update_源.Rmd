@@ -14,7 +14,7 @@ library(plotly)
 ```
 
 
-*导入历史数据*
+## *导入历史数据*
 ```{r}
 #输入认购（call）or 认沽（put）
 type <- "call"
@@ -55,7 +55,7 @@ clean <- function(df) {
 }
 ```
 
-*导入新数据*
+## *导入新数据*
 ```{r}
 # 在文件开头定义配置，方便修改
 file_path <- "中证1000认购update.xlsx"
@@ -308,6 +308,28 @@ for(date_str in names(update_list)) {
 ```
 
 
+
+## *筛选掉临近到期日的合约*
+```{r}
+library(lubridate)
+
+for (i in seq_along(update_list)) {
+  current_date <- as.Date(names(update_list)[i])  # 提取表名的日期
+  df <- update_list[[i]]
+  
+  # 确保到期日是日期类型
+  df$Expire_Date <- as.Date(df$Expire_Date)
+  
+  # 筛选：到期日距离当前日期 > 1 天
+  df <- df[df$Expire_Date - current_date > 1, ]
+  
+  # 回写
+  update_list[[i]] <- df
+}
+
+```
+
+
 *对比行权价格与标的收盘价，确定当日的平值期权（可能有多个）*
 ```{r}
 ID$Exercise_Price <- as.numeric(ID$Exercise_Price)
@@ -332,27 +354,6 @@ At_the_money <- lapply(At_the_money, function(date_data) {
 ```
 
 
-*筛选掉临近到期日的合约*
-```{r}
-library(lubridate)
-
-for (i in seq_along(At_the_money)) {
-  current_date <- as.Date(names(At_the_money)[i])  # 提取表名的日期
-  df <- At_the_money[[i]]
-  
-  # 确保到期日是日期类型
-  df$Expire_Date <- as.Date(df$Expire_Date)
-  
-  # 筛选：到期日距离当前日期 > 1 天
-  df <- df[df$Expire_Date - current_date > 1, ]
-  
-  # 回写
-  At_the_money[[i]] <- df
-}
-
-```
-
-
 *按每日最大成交量筛选主力合约*
 ```{r}
 # 每日取平值期权成交量最大的合约
@@ -369,7 +370,7 @@ atm_max_vol_df <- bind_rows(atm_max_vol, .id = "Date") %>%
 ```
 
 
-## *计算隐含波动率* 
+*计算隐含波动率* 
 ```{r}
 ##########################  Black-Scholes 欧式看涨期权定价公式  ###################################
 
@@ -550,7 +551,7 @@ result_df <- bind_rows(atm_max_vol_df, atm_max_vol_df_latest) %>%
 
 
 
-*更新IV数据，保存更新后的往期数据*
+## *更新IV数据，保存更新后的往期数据*
 ```{r}
 library(openxlsx)
 result_list_latest <- result_list
@@ -570,7 +571,7 @@ if (type == "call"){
 
 
 
-*绘图*
+## *绘图*
 ```{r}
 # 确保日期格式正确
 atm_max_vol_df_latest$Date <- as.Date(atm_max_vol_df_latest$Date)

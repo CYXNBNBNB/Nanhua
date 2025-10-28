@@ -687,9 +687,22 @@ server <- function(input, output, session) {
     }
     
     # ----------------------
+    # 筛选掉临近到期日的合约
+    # ----------------------
+    update_progress("筛选临近到期合约...", 9)
+    
+    for (i in seq_along(update_list)) {
+      current_date <- as.Date(names(update_list)[i])
+      df <- update_list[[i]]
+      df$Expire_Date <- as.Date(df$Expire_Date)
+      df <- df[df$Expire_Date - current_date > 1, ]
+      update_list[[i]] <- df
+    }
+    
+    # ----------------------
     # 提取平值期权
     # ----------------------
-    update_progress("提取平值期权...", 9)
+    update_progress("提取平值期权...", 10)
     
     At_the_money <- lapply(update_list, function(date_data) {
       date_data <- date_data %>%
@@ -697,19 +710,6 @@ server <- function(input, output, session) {
       min_diff <- min(date_data$diff, na.rm = TRUE)
       date_data %>% filter(diff == min_diff)
     })
-    
-    # ----------------------
-    # 筛选掉临近到期日的合约
-    # ----------------------
-    update_progress("筛选临近到期合约...", 10)
-    
-    for (i in seq_along(At_the_money)) {
-      current_date <- as.Date(names(At_the_money)[i])
-      df <- At_the_money[[i]]
-      df$Expire_Date <- as.Date(df$Expire_Date)
-      df <- df[df$Expire_Date - current_date > 1, ]
-      At_the_money[[i]] <- df
-    }
     
     # ----------------------
     # 按每日最大成交量筛选主力合约
@@ -787,6 +787,7 @@ server <- function(input, output, session) {
       atm_max_vol_df = atm_max_vol_df,
       dates = sort(as.Date(names(update_list)))
     ))
+  })
   
   # 2️⃣ 处理平值期权 IV 计算
   atm_iv_data <- eventReactive(input$process, {

@@ -271,6 +271,15 @@ ui <- fluidPage(
             )
           ),
           
+          # 标的历史波动率标签页
+          tabPanel(
+            title = div(icon("bar-chart"), "标的历史波动率"),
+            value = "iv_cone",
+            div(class = "plot-container",
+                plotlyOutput("iv_cone_plot", height = "600px")
+            )
+          ),
+          
           # 历史波动率锥标签页
           tabPanel(
             title = div(icon("area-chart"), "历史波动率锥"),
@@ -304,14 +313,14 @@ ui <- fluidPage(
 )
 
 # ----------------------
-# Server 部分 
+# Server 部分
 # ----------------------
 server <- function(input, output, session) {
   
   # 进度条状态
   progress_status <- reactiveVal("")
   progress_value <- reactiveVal(0)
-  total_steps <- 21
+  total_steps <- 22
   
   # 数据可用性状态
   data_available <- reactiveVal(FALSE)
@@ -855,7 +864,7 @@ server <- function(input, output, session) {
     return(data.frame())
   })
   
-  # 4️⃣ IV 趋势图 - 修改为使用
+  # 4️⃣ IV 趋势图
   output$iv_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
@@ -919,13 +928,139 @@ server <- function(input, output, session) {
     fig
   })
   
-
+  # 5️⃣ 标的历史波动率
+  output$iv_cone_plot <- renderPlotly({
+    req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
+    
+    update_progress("生成隐含波动率锥...", 21)
+    
+    # 使用已有的数据计算历史波动率
+    price_df <- atm_max_vol_df_latest %>%
+      arrange(Date) %>%
+      mutate(Return = log(Target_Close_Price / lag(Target_Close_Price))) %>%
+      filter(!is.na(Return))
+    
+    window_list <- c(10, 20, 60, 120)
+    
+    # 计算不同窗口期的历史波动率
+    hv_data <- data.frame()
+    for (w in window_list) {
+      hv_tmp <- price_df %>%
+        mutate(
+          HV = rollapply(Return, w, sd, fill = NA, align = "right") * sqrt(252),
+          Window = paste0(w, "天")
+        )
+      hv_data <- bind_rows(hv_data, hv_tmp)
+    }
+    
+    hv_data <- hv_data %>% filter(!is.na(HV))
+    
+    # 绘制历史波动率时间序列图
+    fig <- plot_ly() 
+    
+    # 为每个窗口期添加一条线
+    colors <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#d62728")
+    
+    for (i in 1:length(window_list)) {
+      w <- window_list[i]
+      window_data <- hv_data %>% filter(Window == paste0(w, "天"))
+      
+      fig <- fig %>%
+        add_trace(
+          data = window_data,
+          x = ~Date,
+          y = ~HV,
+          type = 'scatter',
+          mode = 'lines',
+          name = paste0(w, "天历史波动率"),
+          line = list(color = colors[i], width = 2),
+          hovertemplate = paste(
+            "<b>日期:</b> %{x}<br>",
+            "<b>", w, "天HV:</b> %{y:.2%}<extra></extra>"
+          )
+        )
+    }
+    
+    # 添加当前日期标记
+    latest_date <- max(hv_data$Date, na.rm = TRUE)
+    latest_hv <- hv_data %>% 
+      filter(Date == latest_date) %>%
+      arrange(Window)
+    
+    for (i in 1:nrow(latest_hv)) {
+      fig <- fig %>%
+        add_trace(
+          x = ~c(latest_hv$Date[i]),
+          y = ~c(latest_hv$HV[i]),
+          type = 'scatter',
+          mode = 'markers',
+          marker = list(
+            size = 8, 
+            color = colors[i],
+            symbol = "diamond"
+          ),
+          name = paste0("当前", latest_hv$Window[i]),
+          showlegend = FALSE,
+          hovertemplate = paste(
+            "<b>日期:</b>", latest_date, "<br>",
+            "<b>", gsub("天", "", latest_hv$Window[i]), "天HV:</b> %{y:.2%}<extra></extra>"
+          )
+        )
+    }
+    
+    fig <- fig %>%
+      layout(
+        title = list(
+          text = "历史波动率时间序列",
+          x = 0.5,
+          font = list(size = 20, family = "Microsoft YaHei", color = "#333")
+        ),
+        xaxis = list(
+          title = "日期",
+          type = "date",
+          tickformat = "%Y-%m-%d",
+          rangeslider = list(visible = TRUE),
+          rangeselector = list(
+            buttons = list(
+              list(count = 1, label = "1月", step = "month", stepmode = "backward"),
+              list(count = 3, label = "3月", step = "month", stepmode = "backward"),
+              list(count = 6, label = "6月", step = "month", stepmode = "backward"),
+              list(count = 1, label = "1年", step = "year", stepmode = "backward"),
+              list(step = "all", label = "全部")
+            )
+          )
+        ),
+        yaxis = list(
+          title = "年化历史波动率",
+          tickformat = ".1%",
+          rangemode = "tozero",
+          domain = c(0.0, 1)
+        ),
+        hovermode = "x unified",
+        legend = list(
+          orientation = "h", 
+          x = 0.5, 
+          y = 1.02, 
+          xanchor = "center",
+          yanchor = "bottom",
+          bgcolor = "rgba(255,255,255,0.9)",
+          bordercolor = "rgba(0,0,0,0.1)",
+          borderwidth = 1,
+          font = list(size = 12, family = "Microsoft YaHei")
+        ),
+        plot_bgcolor = "#fafafa",
+        paper_bgcolor = "#ffffff",
+        margin = list(t = 120, b = 120)
+      )
+    
+    fig
+  })
   
   # 6️⃣ 历史波动率锥
   output$hv_cone_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
-    update_progress("生成历史波动率锥...", 21)
+    update_progress("生成历史波动率锥...", 22)
     
     # 处理完成后隐藏进度条
     Sys.sleep(0.5)
@@ -1072,7 +1207,7 @@ server <- function(input, output, session) {
     p
   })
   
-  # 7️⃣ 数据表显示
+  # 7️⃣ 数据表显示 - 修改为使用display_atm_max_vol_df
   output$iv_data <- renderDT({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     

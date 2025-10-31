@@ -91,6 +91,25 @@ ui <- fluidPage(
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       }
       
+      /* 保存按钮样式 */
+      .save-button {
+        width: 100%;
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: bold;
+        margin: 10px 0;
+        transition: all 0.3s ease;
+      }
+      
+      .save-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      }
+      
       /* 进度条容器 */
       .progress-container {
         margin: 15px 0;
@@ -234,6 +253,13 @@ ui <- fluidPage(
                        class = "action-button")
       ),
       
+      # 保存数据按钮
+      div(class = "action-button-container",
+          actionButton("save_data", 
+                       label = div(icon("save"), "保存数据到本地"),
+                       class = "save-button")
+      ),
+      
       # 进度条显示
       uiOutput("progress_ui"),
       
@@ -243,7 +269,7 @@ ui <- fluidPage(
       # 信息提示
       div(style = "margin-top: 20px; font-size: 12px; color: #666;",
           icon("info-circle"),
-          "上传Excel文件后点击处理按钮更新数据"
+          "上传Excel文件后点击处理按钮更新数据，检查无误后点击保存按钮"
       )
     ),
     
@@ -356,7 +382,8 @@ server <- function(input, output, session) {
               p("1. 在左侧选择期权类型（看涨/看跌）"),
               p("2. 上传包含期权数据的Excel文件"),
               p("3. 点击『处理数据并更新』按钮"),
-              p("系统将自动计算隐含波动率并生成分析图表。")
+              p("4. 检查图表和数据表确认无误"),
+              p("5. 点击『保存数据到本地』按钮")
           )
       )
     }
@@ -811,34 +838,55 @@ server <- function(input, output, session) {
     ))
   })
   
-  # 3️⃣ 保存数据到本地文件
+  # 3️⃣ 处理数据按钮 - 只更新current_data，不保存文件
   observeEvent(input$process, {
     req(atm_iv_data())
     
-    update_progress("保存数据到本地文件...", 18)
+    update_progress("准备数据展示...", 18)
     
     data <- atm_iv_data()
     result_list_latest <- data$At_the_money
     atm_max_vol_df_latest <- data$atm_max_vol_df
     
-    # 保存到RData和Excel文件
-    if (input$type == "call"){
-      write_xlsx(atm_max_vol_df_latest, path = "IV_call_results.xlsx")
-      save(result_list_latest, atm_max_vol_df_latest, file = "call_data.RData")
-      showNotification("Call数据已成功保存！", type = "message", duration = 5)
-    } else if (input$type == "put") {
-      write_xlsx(atm_max_vol_df_latest, path = "IV_put_results.xlsx")
-      save(result_list_latest, atm_max_vol_df_latest, file = "put_data.RData")
-      showNotification("Put数据已成功保存！", type = "message", duration = 5)
-    }
-    
-    # 修改：保存后更新current_data
+    # 只更新current_data，不保存到文件
     current_data(list(
       result_list_latest = result_list_latest,
       atm_max_vol_df_latest = atm_max_vol_df_latest
     ))
     
-    update_progress("数据保存完成！", 19)
+    update_progress("数据处理完成！", 19)
+    
+    # 显示成功通知，提示用户检查后保存
+    showNotification("数据处理完成！请检查图表和数据表，确认无误后点击『保存数据到本地』按钮。", 
+                     type = "message", duration = 10)
+  })
+  
+  # 4️⃣ 保存数据按钮的逻辑
+  observeEvent(input$save_data, {
+    req(current_data())
+    
+    # 显示保存进度
+    save_notification <- showNotification("正在保存数据到本地文件...", 
+                                          type = "message", 
+                                          duration = NULL)
+    
+    data <- current_data()
+    result_list_latest <- data$result_list_latest
+    atm_max_vol_df_latest <- data$atm_max_vol_df_latest
+    
+    # 保存到RData和Excel文件
+    if (input$type == "call"){
+      write_xlsx(atm_max_vol_df_latest, path = "IV_call_results.xlsx")
+      save(result_list_latest, atm_max_vol_df_latest, file = "call_data.RData")
+      showNotification("Call数据已成功保存到本地！", type = "message", duration = 5)
+    } else if (input$type == "put") {
+      write_xlsx(atm_max_vol_df_latest, path = "IV_put_results.xlsx")
+      save(result_list_latest, atm_max_vol_df_latest, file = "put_data.RData")
+      showNotification("Put数据已成功保存到本地！", type = "message", duration = 5)
+    }
+    
+    # 移除保存通知
+    removeNotification(save_notification)
   })
   
   # 修改：创建一个统一的reactive来获取当前显示的atm_max_vol_df
@@ -864,7 +912,7 @@ server <- function(input, output, session) {
     return(data.frame())
   })
   
-  # 4️⃣ IV 趋势图
+  # 5️⃣ IV 趋势图
   output$iv_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
@@ -928,7 +976,7 @@ server <- function(input, output, session) {
     fig
   })
   
-  # 5️⃣ 标的历史波动率
+  # 6️⃣ 标的历史波动率
   output$iv_cone_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
@@ -1059,7 +1107,7 @@ server <- function(input, output, session) {
     fig
   })
   
-  # 6️⃣ 历史波动率锥
+  # 7️⃣ 历史波动率锥
   output$hv_cone_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
@@ -1210,7 +1258,7 @@ server <- function(input, output, session) {
     p
   })
   
-  # 7️⃣ 数据表显示 - 修改为使用display_atm_max_vol_df
+  # 8️⃣ 数据表显示 - 修改为使用display_atm_max_vol_df
   output$iv_data <- renderDT({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     

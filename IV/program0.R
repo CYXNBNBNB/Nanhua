@@ -932,10 +932,13 @@ server <- function(input, output, session) {
   output$iv_cone_plot <- renderPlotly({
     req(display_atm_max_vol_df(), nrow(display_atm_max_vol_df()) > 0)
     
-    update_progress("生成隐含波动率锥...", 21)
+    update_progress("生成标的历史波动率...", 21)
+    
+    # 使用display_atm_max_vol_df()来获取数据
+    atm_max_vol_df <- display_atm_max_vol_df()
     
     # 使用已有的数据计算历史波动率
-    price_df <- atm_max_vol_df_latest %>%
+    price_df <- atm_max_vol_df %>%
       arrange(Date) %>%
       mutate(Return = log(Target_Close_Price / lag(Target_Close_Price))) %>%
       filter(!is.na(Return))

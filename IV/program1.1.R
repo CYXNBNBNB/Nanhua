@@ -789,7 +789,7 @@ server <- function(input, output, session) {
       }
       
       for (d in names(result_list)) {
-        result_list[[d]] <- result_list[[d]] %>% filter(if_any(everything(), ~ !is.na(.)))
+        result_list[[d]] <- result_list[[d]] %>% filter(if_all(everything(), ~ !is.na(.)))
       }
       
       update_list <- result_list
@@ -807,7 +807,7 @@ server <- function(input, output, session) {
         slice_max(Volume, n = 1, with_ties = FALSE) %>% 
         ungroup() %>%
         arrange(desc(Date)) %>%
-        filter(if_any(everything(), ~ !is.na(.)))
+        filter(if_any(everything(), ~ !is.na(.)))    ####### any
     }
     
     update_progress("数据处理完成！", 15)
